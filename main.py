@@ -10,6 +10,7 @@ from graph_utils import build_graph, State
 from ui_preview import save_and_preview_generated_ui
 from streamlit_drawable_canvas import st_canvas
 import numpy as np
+from image_groq_tools import set_groq_api_key
 
 st.set_page_config(page_title="Sketch to UI", layout="wide")
 st.title("🖌️ Sketch to Functional UI Generator")
@@ -59,6 +60,17 @@ with col1:
         "Describe what the UI should include",
         value="Generate accurate dashboard HTML/CSS/JS from this sketch. The CSS HTML styles should be very beautiful..enhance the visual representation"
     )
+
+    st.markdown("### 🔑 Enter Groq API Key")
+    groq_api_key = st.text_input("Groq API Key", type="password")
+    set_api_clicked = st.button("🔐 Set API Key")
+
+    if set_api_clicked:
+        if groq_api_key:
+            set_groq_api_key(groq_api_key)
+            st.success("Groq API Key set successfully!")
+        else:
+            st.error("Please enter a valid API Key.")
 
     generate_clicked = st.button("🚀 Generate UI")
 

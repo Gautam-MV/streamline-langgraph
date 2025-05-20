@@ -7,3 +7,4 @@ python-dotenv
 arxiv 
 wikipedia 
 langchain_community
+streamlit-drawable-canvas

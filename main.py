@@ -20,6 +20,7 @@ def stop_process_on_port(port):
     """
     Automatically stop any process running on the given port.
     """
+    process_stopped = False
     try:
         for conn in psutil.net_connections(kind="inet"):
             if conn.laddr.port == port:
@@ -29,16 +30,36 @@ def stop_process_on_port(port):
                     proc.terminate()  # Gracefully terminate
                     proc.wait(timeout=5)
                     st.success(f"Successfully terminated process {conn.pid} on port {port}.")
+                    process_stopped = True
                 except psutil.AccessDenied:
                     st.error(f"Access denied while trying to terminate process {conn.pid}. Please run with elevated permissions.")
                 except psutil.NoSuchProcess:
                     st.warning(f"Process {conn.pid} no longer exists.")
+                except psutil.TimeoutExpired:
+                    st.error(f"Timeout while stopping process {conn.pid}. Trying to kill the process...")
+                    proc.kill()  # Force kill
+                    st.success(f"Forcefully killed process {conn.pid}.")
+                    process_stopped = True
                 except Exception as e:
-                    st.error(f"Error stopping process on port {port}: {e}")
-                return True
+                    st.error(f"Unexpected error stopping process {conn.pid} on port {port}: {e}")
     except Exception as e:
         st.error(f"Error accessing port {port}: {e}")
-    return False
+    return process_stopped
+
+# Function to clear the `ui_output` folder
+def clear_ui_output(output_dir):
+    """
+    Clears all files in the `ui_output` directory except `app.py`.
+    """
+    try:
+        for filename in os.listdir(output_dir):
+            if filename != "app.py":
+                file_path = os.path.join(output_dir, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+        st.success(f"Cleared all files in '{output_dir}' except 'app.py'.")
+    except Exception as e:
+        st.error(f"Error clearing 'ui_output': {e}")
 
 # Layout: Two columns
 col1, col2 = st.columns([1, 2])  # Left: Settings | Right: Canvas
@@ -121,6 +142,10 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
         st.subheader("✅ Feedback")
         st.markdown(final_state["feedback"])
 
+        # Clear `ui_output` folder
+        ui_dir = "ui_output"
+        clear_ui_output(ui_dir)
+
         # Save and preview generated HTML/CSS/JS
         save_and_preview_generated_ui(final_state["html"])
 
@@ -128,7 +153,6 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
         stop_process_on_port(8502)
 
         # Launch subprocess to run app.py in a new Streamlit session
-        ui_dir = "ui_output"
         try:
             subprocess.Popen(["streamlit", "run", "app.py", "--server.port", "8502"], cwd=ui_dir)
             st.success("🎉 UI launched in a new tab.")

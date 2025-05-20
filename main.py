@@ -3,33 +3,42 @@ from PIL import Image
 import tempfile
 import os
 import subprocess
-import time
 import socket
-import webbrowser
-import numpy as np
-from streamlit_drawable_canvas import st_canvas
-
+import time
+import psutil
 from graph_utils import build_graph, State
 from ui_preview import save_and_preview_generated_ui
+from streamlit_drawable_canvas import st_canvas
+import numpy as np
 from image_groq_tools import set_groq_api_key
 
 st.set_page_config(page_title="Sketch to UI", layout="wide")
 st.title("🖌️ Sketch to Functional UI Generator")
 
-# Initialize process state for preview UI app
-if "preview_process" not in st.session_state:
-    st.session_state.preview_process = None
-
-def kill_process(proc):
+# Function to stop a process on a given port
+def stop_process_on_port(port):
+    """
+    Automatically stop any process running on the given port.
+    """
     try:
-        proc.terminate()
-        proc.wait(timeout=5)
-    except Exception:
-        proc.kill()
-
-def is_port_in_use(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(('localhost', port)) == 0
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.laddr.port == port:
+                try:
+                    proc = psutil.Process(conn.pid)
+                    st.info(f"Found process {conn.pid} using port {port}. Attempting to terminate...")
+                    proc.terminate()  # Gracefully terminate
+                    proc.wait(timeout=5)
+                    st.success(f"Successfully terminated process {conn.pid} on port {port}.")
+                except psutil.AccessDenied:
+                    st.error(f"Access denied while trying to terminate process {conn.pid}. Please run with elevated permissions.")
+                except psutil.NoSuchProcess:
+                    st.warning(f"Process {conn.pid} no longer exists.")
+                except Exception as e:
+                    st.error(f"Error stopping process on port {port}: {e}")
+                return True
+    except Exception as e:
+        st.error(f"Error accessing port {port}: {e}")
+    return False
 
 # Layout: Two columns
 col1, col2 = st.columns([1, 2])  # Left: Settings | Right: Canvas
@@ -84,9 +93,10 @@ with col2:
         key="canvas",
     )
 
+# If Generate Button Clicked
 if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
     with st.spinner("Generating HTML..."):
-        # Save sketch image file
+        # Save sketch
         if sketch_file:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 tmp.write(sketch_file.read())
@@ -97,7 +107,7 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
                 image.save(tmp.name)
                 sketch_path = tmp.name
 
-        # Build LangGraph flow and run it
+        # Build LangGraph flow
         flow = build_graph()
         state: State = {
             "sketch": sketch_path,
@@ -111,38 +121,17 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
         st.subheader("✅ Feedback")
         st.markdown(final_state["feedback"])
 
-        # Save generated HTML/CSS/JS to ui_output folder
+        # Save and preview generated HTML/CSS/JS
         save_and_preview_generated_ui(final_state["html"])
 
-        # Launch preview app.py as a new Streamlit app on port 8502
-        PREVIEW_PORT = 8502
-        preview_url = f"http://localhost:{PREVIEW_PORT}"
+        # Stop existing process on port 8502
+        stop_process_on_port(8502)
 
-        # Kill any existing preview process
-        if st.session_state.preview_process:
-            st.info("Stopping previous preview server...")
-            kill_process(st.session_state.preview_process)
-            st.session_state.preview_process = None
-            time.sleep(1)
-
-        if is_port_in_use(PREVIEW_PORT):
-            st.error(f"Port {PREVIEW_PORT} is already in use. Please free it and try again.")
-        else:
-            # Launch preview app.py subprocess
-            st.session_state.preview_process = subprocess.Popen(
-                ["streamlit", "run", "app.py", "--server.port", str(PREVIEW_PORT)],
-                cwd="ui_output",  # Run from ui_output folder if app.py is there, else adjust path
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-
-            # Wait for server to start
-            time.sleep(3)
-
-            st.success("🎉 Preview UI launched!")
-
-            # Open preview in new browser tab automatically
-            webbrowser.open_new_tab(preview_url)
-
-            # Also show clickable link
-            st.markdown(f"### 👉 [Open Generated UI Preview]({preview_url})", unsafe_allow_html=True)
+        # Launch subprocess to run app.py in a new Streamlit session
+        ui_dir = "ui_output"
+        try:
+            subprocess.Popen(["streamlit", "run", "app.py", "--server.port", "8502"], cwd=ui_dir)
+            st.success("🎉 UI launched in a new tab.")
+            st.markdown("👉 [Open Generated UI](http://localhost:8502)", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Failed to launch UI: {e}")

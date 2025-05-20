@@ -3,32 +3,29 @@ from PIL import Image
 import tempfile
 import os
 import subprocess
-import signal
-import socket
 import time
+import socket
+import webbrowser
+import numpy as np
+from streamlit_drawable_canvas import st_canvas
+
 from graph_utils import build_graph, State
 from ui_preview import save_and_preview_generated_ui
-from streamlit_drawable_canvas import st_canvas
-import numpy as np
 from image_groq_tools import set_groq_api_key
 
 st.set_page_config(page_title="Sketch to UI", layout="wide")
 st.title("🖌️ Sketch to Functional UI Generator")
 
-# Initialize process state
-if "ui_process" not in st.session_state:
-    st.session_state.ui_process = None
+# Initialize process state for preview UI app
+if "preview_process" not in st.session_state:
+    st.session_state.preview_process = None
 
 def kill_process(proc):
     try:
         proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-    except Exception as e:
-        st.error(f"Error killing process: {e}")
+        proc.wait(timeout=5)
+    except Exception:
+        proc.kill()
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -87,10 +84,9 @@ with col2:
         key="canvas",
     )
 
-# If Generate Button Clicked
 if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
     with st.spinner("Generating HTML..."):
-        # Save sketch
+        # Save sketch image file
         if sketch_file:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 tmp.write(sketch_file.read())
@@ -101,7 +97,7 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
                 image.save(tmp.name)
                 sketch_path = tmp.name
 
-        # Build LangGraph flow
+        # Build LangGraph flow and run it
         flow = build_graph()
         state: State = {
             "sketch": sketch_path,
@@ -115,22 +111,38 @@ if generate_clicked and (sketch_file or (canvas_result.image_data is not None)):
         st.subheader("✅ Feedback")
         st.markdown(final_state["feedback"])
 
-        # Save and preview generated HTML/CSS/JS
+        # Save generated HTML/CSS/JS to ui_output folder
         save_and_preview_generated_ui(final_state["html"])
 
-        # Launch subprocess to run app.py
-        ui_dir = "ui_output"
+        # Launch preview app.py as a new Streamlit app on port 8502
+        PREVIEW_PORT = 8502
+        preview_url = f"http://localhost:{PREVIEW_PORT}"
 
-        # Stop previous process if running
-        if st.session_state.ui_process:
-            st.info("Stopping previous UI server...")
-            kill_process(st.session_state.ui_process)
-            st.session_state.ui_process = None
+        # Kill any existing preview process
+        if st.session_state.preview_process:
+            st.info("Stopping previous preview server...")
+            kill_process(st.session_state.preview_process)
+            st.session_state.preview_process = None
             time.sleep(1)
 
-        if is_port_in_use(8000):
-            st.error("Port 8000 is in use. Please stop the UI server or restart Streamlit.")
+        if is_port_in_use(PREVIEW_PORT):
+            st.error(f"Port {PREVIEW_PORT} is already in use. Please free it and try again.")
         else:
-            st.session_state.ui_process = subprocess.Popen(["python", "app.py"], cwd=ui_dir)
-            st.success("🎉 UI launched in a new tab.")
-            st.markdown("👉 [Open UI](http://localhost:8000)", unsafe_allow_html=True)
+            # Launch preview app.py subprocess
+            st.session_state.preview_process = subprocess.Popen(
+                ["streamlit", "run", "app.py", "--server.port", str(PREVIEW_PORT)],
+                cwd="ui_output",  # Run from ui_output folder if app.py is there, else adjust path
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            # Wait for server to start
+            time.sleep(3)
+
+            st.success("🎉 Preview UI launched!")
+
+            # Open preview in new browser tab automatically
+            webbrowser.open_new_tab(preview_url)
+
+            # Also show clickable link
+            st.markdown(f"### 👉 [Open Generated UI Preview]({preview_url})", unsafe_allow_html=True)

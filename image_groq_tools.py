@@ -1,9 +1,8 @@
-# image_groq_tools.py
 import base64
 from groq import Groq
 from typing import TypedDict
 
-API_KEY = ""
+groq_api_key = None  # Global variable for API Key
 MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 class State(TypedDict):
@@ -13,17 +12,25 @@ class State(TypedDict):
     feedback: str
     attempts: int
 
+def set_groq_api_key(key: str):
+    """Set the Groq API Key globally."""
+    global groq_api_key
+    groq_api_key = key
+
 def image_to_base64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
 def generate_html(state: State) -> dict:
     print("GENERATE_HTML CALLED")
+    if not groq_api_key:
+        raise ValueError("Groq API Key not set. Please set it before generating HTML.")
+    
     b64_img = image_to_base64(state["sketch"])
     feedback = state.get("feedback", "")
     full_prompt = f"{state['prompt']}\n{'Previous feedback: ' + feedback if feedback and 'APPROVED' not in feedback.upper() else ''}"
 
-    client = Groq(api_key=API_KEY)
+    client = Groq(api_key=groq_api_key)
     res = client.chat.completions.create(
         model=MODEL,
         messages=[{
@@ -39,6 +46,9 @@ def generate_html(state: State) -> dict:
 
 def evaluate_html(state: State) -> dict:
     print("EVALUATE_HTML CALLED", state["attempts"])
+    if not groq_api_key:
+        raise ValueError("Groq API Key not set. Please set it before evaluating HTML.")
+
     b64_img = image_to_base64(state["sketch"])
     prompt = f"""
     You are a UI evaluator. Compare the HTML/CSS/JS to the original sketch.
@@ -46,7 +56,7 @@ def evaluate_html(state: State) -> dict:
     HTML: {state['html']}
     """
 
-    client = Groq(api_key=API_KEY)
+    client = Groq(api_key=groq_api_key)
     res = client.chat.completions.create(
         model=MODEL,
         messages=[{
@@ -66,6 +76,7 @@ def evaluate_html(state: State) -> dict:
     if "**APPROVED**" not in feedback.upper():
         state["attempts"] += 1
     return state
+
 
 def check_feedback(state: State) -> str:
     if state["attempts"] >= 8:

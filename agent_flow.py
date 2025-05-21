@@ -1,7 +1,7 @@
 # graph_utils.py
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
-from image_groq_tools import generate_html, evaluate_html, check_feedback
+from groq_integration import generate_html, evaluate_html, check_feedback
 
 class State(TypedDict):
     sketch: str

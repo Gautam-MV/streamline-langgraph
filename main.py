@@ -6,7 +6,7 @@ import subprocess
 import socket
 import time
 import psutil
-from graph_utils import build_graph, State
+from agent_flow import build_graph, State
 from ui_renderer import save_and_preview_generated_ui
 from streamlit_drawable_canvas import st_canvas
 import numpy as np
